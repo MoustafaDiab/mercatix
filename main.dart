@@ -13,12 +13,12 @@ class Captain {
   final String uid;
   final String name;
   final String email;
-  final double budget; // Remaining budget (starts at 68.0M and is reduced by pre-assigned card & purchases)
-  final int stars;     // Remaining stars (starts at 27 and is reduced by pre-assigned card & purchases)
-  final int playerCount; // Current count of players in the team (starts at 1 due to pre-assigned captain card)
-  final String captainClass; // Chosen fantasy role of the captain (Warrior, Wizard, Rogue, Paladin)
-  final double captainCost;  // Cost of the pre-assigned captain player card
-  final int captainStars;    // Stars of the pre-assigned captain player card
+  final double budget; // Remaining budget (starts at 68.0M)
+  final int stars;     // Remaining stars (starts at 27)
+  final int playerCount; // Current count of players in the team
+  final String captainClass; // Chosen fantasy role
+  final double captainCost;  // Cost of pre-assigned captain player card
+  final int captainStars;    // Stars of pre-assigned captain player card
 
   Captain({
     required this.uid,
@@ -32,7 +32,6 @@ class Captain {
     required this.captainStars,
   });
 
-  /// Factory method to construct a Captain from a Firebase Realtime Database map.
   factory Captain.fromMap(String uid, Map<dynamic, dynamic> map) {
     return Captain(
       uid: uid,
@@ -47,7 +46,6 @@ class Captain {
     );
   }
 
-  /// Converts the Captain instance to a map for Firebase RTDB updates.
   Map<String, dynamic> toMap() {
     return {
       'name': name,
@@ -66,10 +64,10 @@ class Captain {
 class Player {
   final String id;
   final String name;
-  final double price; // Cost of the player in Millions (e.g. 14.5M)
-  final int stars;    // Rating of the player (1-9 stars)
-  final String? ownerId; // UID of the captain who bought this player (null if available)
-  final String? ownerName; // Display name of the owner captain (null if available)
+  final double price; // Cost in Millions
+  final int stars;    // Rating (1-9 stars)
+  final String? ownerId; // Captain UID who bought this player
+  final String? ownerName; // Captain Display Name
 
   Player({
     required this.id,
@@ -80,7 +78,6 @@ class Player {
     this.ownerName,
   });
 
-  /// Factory method to construct a Player from a Firebase Realtime Database map.
   factory Player.fromMap(String id, Map<dynamic, dynamic> map) {
     return Player(
       id: id,
@@ -92,7 +89,6 @@ class Player {
     );
   }
 
-  /// Converts the Player instance to a map for Firebase RTDB updates.
   Map<String, dynamic> toMap() {
     return {
       'name': name,
@@ -108,13 +104,10 @@ class Player {
 // RIVERPOD PROVIDERS (STATE MANAGEMENT)
 // ============================================================================
 
-/// Provider for accessing the Firebase Realtime Database instance.
 final dbProvider = Provider<FirebaseDatabase>((ref) => FirebaseDatabase.instance);
 
-/// Provider tracking the currently logged-in Captain email.
 final currentCaptainEmailProvider = StateProvider<String?>((ref) => null);
 
-/// Provider tracking the currently logged-in Captain's unique ID.
 final currentCaptainIdProvider = StateProvider<String?>((ref) => null);
 
 /// Real-time stream of the current captain's record.
@@ -122,7 +115,7 @@ final currentCaptainStreamProvider = StreamProvider<Captain?>((ref) {
   final db = ref.watch(dbProvider);
   final captainId = ref.watch(currentCaptainIdProvider);
   if (captainId == null) return Stream.value(null);
-  
+
   return db.ref().child('captains/$captainId').onValue.map((event) {
     final snapshot = event.snapshot;
     if (snapshot.value == null) return null;
@@ -141,7 +134,7 @@ final playersStreamProvider = StreamProvider<List<Player>>((ref) {
   });
 });
 
-/// Real-time stream listing all registered captains from the database.
+/// Real-time stream listing all registered captains.
 final captainsStreamProvider = StreamProvider<List<Captain>>((ref) {
   final db = ref.watch(dbProvider);
   return db.ref().child('captains').onValue.map((event) {
@@ -156,11 +149,10 @@ final captainsStreamProvider = StreamProvider<List<Captain>>((ref) {
 // DATABASE ACTIONS & SERVICES
 // ============================================================================
 
-/// Seeds the Firebase Realtime Database with a standard pool of unbought players if empty.
 Future<void> seedDatabaseIfEmpty(FirebaseDatabase db) async {
   final playersRef = db.ref().child('players');
   final snapshot = await playersRef.get();
-  
+
   if (!snapshot.exists || snapshot.value == null) {
     final initialPlayers = {
       'p1': {'name': 'Thorin Oakshield', 'price': 18.0, 'stars': 7, 'ownerId': null, 'ownerName': null},
@@ -183,12 +175,11 @@ Future<void> seedDatabaseIfEmpty(FirebaseDatabase db) async {
   }
 }
 
-/// Looks up an existing captain node using the user's email address.
 Future<Captain?> lookupCaptainByEmail(FirebaseDatabase db, String email) async {
   final ref = db.ref().child('captains');
   final query = ref.orderByChild('email').equalTo(email.trim().toLowerCase());
   final snapshot = await query.get();
-  
+
   if (snapshot.exists && snapshot.value != null) {
     final map = snapshot.value as Map<dynamic, dynamic>;
     final entry = map.entries.first;
@@ -197,8 +188,6 @@ Future<Captain?> lookupCaptainByEmail(FirebaseDatabase db, String email) async {
   return null;
 }
 
-/// Registers a new Captain, pre-assigns their personal Captain Player card to their team,
-/// and writes their records atomically into the database.
 Future<Captain> registerCaptain({
   required FirebaseDatabase db,
   required String name,
@@ -211,11 +200,8 @@ Future<Captain> registerCaptain({
   final captainsRef = db.ref().child('captains');
   final playersRef = db.ref().child('players');
 
-  // 1. Generate unique Captain UID
   final captainUid = captainsRef.push().key ?? DateTime.now().millisecondsSinceEpoch.toString();
 
-  // 2. Compute deducted starting limits
-  // Max Budget: 68M, Max Stars: 27, Player Count: 1 (Captain counts as the first player)
   final double startingBudget = 68.0 - classCost;
   final int startingStars = 27 - classStars;
 
@@ -225,13 +211,12 @@ Future<Captain> registerCaptain({
     email: cleanEmail,
     budget: startingBudget,
     stars: startingStars,
-    playerCount: 1, // Pre-assigned slot deducted
+    playerCount: 1,
     captainClass: captainClass,
     captainCost: classCost,
     captainStars: classStars,
   );
 
-  // 3. Create pre-assigned captain player card in the database
   final captainPlayerId = 'captain_player_$captainUid';
   final captainPlayerCard = {
     'name': '$name (C)',
@@ -241,17 +226,12 @@ Future<Captain> registerCaptain({
     'ownerName': name,
   };
 
-  // Set the captain player card first
   await playersRef.child(captainPlayerId).set(captainPlayerCard);
-
-  // Set the captain's account info
   await captainsRef.child(captainUid).set(captain.toMap());
 
   return captain;
 }
 
-/// Performs a transaction-safe player purchase.
-/// Uses `runTransaction` on the DB root to prevent race conditions (e.g. two captains buying at the same time).
 Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId, String playerId) async {
   final rootRef = db.ref();
 
@@ -263,7 +243,6 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
 
       final rootMap = Map<dynamic, dynamic>.from(rootValue as Map);
 
-      // Extract existing players and captains lists safely
       final playersMap = rootMap['players'] != null
           ? Map<dynamic, dynamic>.from(rootMap['players'] as Map)
           : {};
@@ -271,19 +250,15 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
           ? Map<dynamic, dynamic>.from(rootMap['captains'] as Map)
           : {};
 
-      if (!playersMap.containsKey(playerId)) {
-        return Transaction.abort(); // Player not found
-      }
-      if (!captainsMap.containsKey(captainId)) {
-        return Transaction.abort(); // Captain not found
+      if (!playersMap.containsKey(playerId) || !captainsMap.containsKey(captainId)) {
+        return Transaction.abort();
       }
 
       final playerMap = Map<dynamic, dynamic>.from(playersMap[playerId] as Map);
       final captainMap = Map<dynamic, dynamic>.from(captainsMap[captainId] as Map);
 
-      // TRANSACTION SAFETY CHECK 1: Ensure player isn't already owned
       if (playerMap['ownerId'] != null) {
-        return Transaction.abort(); // Already purchased by someone else!
+        return Transaction.abort();
       }
 
       final double price = (playerMap['price'] as num).toDouble();
@@ -293,18 +268,10 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
       final int currentStars = (captainMap['stars'] as num).toInt();
       final int currentCount = (captainMap['playerCount'] as num).toInt();
 
-      // TRANSACTION SAFETY CHECK 2: Validate all budget, star, and team constraints
-      if (currentCount >= 8) {
-        return Transaction.abort(); // Squad size limit exceeded (max 8)
-      }
-      if (currentBudget < price) {
-        return Transaction.abort(); // Captain budget exceeded (max 68M)
-      }
-      if (currentStars < stars) {
-        return Transaction.abort(); // Captain stars limit exceeded (max 27)
+      if (currentCount >= 8 || currentBudget < price || currentStars < stars) {
+        return Transaction.abort();
       }
 
-      // Apply safe, race-free transactional modifications
       playerMap['ownerId'] = captainId;
       playerMap['ownerName'] = captainMap['name'];
 
@@ -312,7 +279,6 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
       captainMap['stars'] = currentStars - stars;
       captainMap['playerCount'] = currentCount + 1;
 
-      // Map references updated back to root
       playersMap[playerId] = playerMap;
       captainsMap[captainId] = captainMap;
       rootMap['players'] = playersMap;
@@ -322,7 +288,7 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
     });
 
     if (transactionResult.committed) {
-      return null; // Purchase completed successfully
+      return null;
     } else {
       return 'Bidding transaction failed. Player may have just been bought, or limits exceeded.';
     }
@@ -338,12 +304,10 @@ Future<String?> purchasePlayerTransaction(FirebaseDatabase db, String captainId,
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // NOTE: On your local workspace, make sure to add your google-services.json (Android) or GoogleService-Info.plist (iOS).
-  // The app will attempt to initialize default Firebase options. If not configured, configure manually.
   try {
     await Firebase.initializeApp();
   } catch (e) {
-    debugPrint('Firebase initialization warning: $e. Ensure google-services.json is correctly placed.');
+    debugPrint('Firebase initialization warning: $e.');
   }
 
   runApp(
@@ -364,21 +328,20 @@ class MercatixApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121020), // Immersive dark fantasy background
+        scaffoldBackgroundColor: const Color(0xFF121020),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFFFD700), // Regal Gold primary seed
+          seedColor: const Color(0xFFFFD700),
           brightness: Brightness.dark,
-          primary: const Color(0xFFFFD700), // Gold accents
-          secondary: const Color(0xFF9C27B0), // Mystic Purple secondary accents
-          background: const Color(0xFF121020),
-          surface: const Color(0xFF25214D), // Soft dark purple card surfaces
+          primary: const Color(0xFFFFD700),
+          secondary: const Color(0xFF9C27B0),
+          surface: const Color(0xFF25214D),
         ),
         cardTheme: CardTheme(
           color: const Color(0xFF25214D),
           elevation: 4,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Color(0x33FFD700), width: 1), // Subtle gold border
+            side: const BorderSide(color: Color(0x33FFD700), width: 1),
           ),
         ),
         appBarTheme: const AppBarTheme(
@@ -399,7 +362,7 @@ class MercatixApp extends StatelessWidget {
 }
 
 // ============================================================================
-// AUTHENTICATION & INITIALIZATION WRAPPER
+// AUTHENTICATION WRAPPER
 // ============================================================================
 
 class AuthWrapper extends ConsumerStatefulWidget {
@@ -413,7 +376,6 @@ class _AuthWrapperState extends ConsumerState<AuthWrapper> {
   @override
   void initState() {
     super.initState();
-    // Seeds the database with default unbought fantasy players if it's currently empty
     final db = ref.read(dbProvider);
     seedDatabaseIfEmpty(db);
   }
@@ -446,7 +408,6 @@ class _LoginRegisterScreenState extends ConsumerState<LoginRegisterScreen> {
   bool _isRegistering = false;
   bool _isLoading = false;
 
-  // Pre-assigned Captain classes available during registration
   String _selectedClass = 'Warrior';
   double _classCost = 10.0;
   int _classStars = 4;
@@ -496,7 +457,6 @@ class _LoginRegisterScreenState extends ConsumerState<LoginRegisterScreen> {
           return;
         }
 
-        // Register new captain with pre-assigned class card
         final newCaptain = await registerCaptain(
           db: db,
           name: _nameController.text.trim(),
@@ -519,7 +479,6 @@ class _LoginRegisterScreenState extends ConsumerState<LoginRegisterScreen> {
           return;
         }
 
-        // Existing captain found, log them in
         ref.read(currentCaptainEmailProvider.notifier).state = existingCaptain.email;
         ref.read(currentCaptainIdProvider.notifier).state = existingCaptain.uid;
         _showSnackbar('Welcome back, Captain ${existingCaptain.name}!');
@@ -549,7 +508,6 @@ class _LoginRegisterScreenState extends ConsumerState<LoginRegisterScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Beautiful app title / fantasy design
               const Icon(Icons.gavel, size: 80, color: Color(0xFFFFD700)),
               const SizedBox(height: 16),
               const Text(
@@ -712,13 +670,12 @@ class _MainNavigationLayoutState extends ConsumerState<MainNavigationLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final captainAsync = ref.watch(currentCaptainProvider);
+    final captainAsync = ref.watch(currentCaptainStreamProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('MERCATIX'),
         actions: [
-          // Elegant current captain info indicator
           captainAsync.when(
             data: (captain) {
               if (captain == null) return const SizedBox();
@@ -786,17 +743,14 @@ class _MainNavigationLayoutState extends ConsumerState<MainNavigationLayout> {
 class MarketView extends ConsumerWidget {
   const MarketView({super.key});
 
-  /// Client-side business rule validation logic.
-  /// Prevents any actions that violate the 8-player squad limit, 68M budget limit, or 27-star limit.
   bool _canPurchase(Captain captain, Player player) {
-    if (player.ownerId != null) return false; // Already owned
-    if (captain.playerCount >= 8) return false; // Limit: Max 8 players
-    if (captain.budget < player.price) return false; // Limit: Max 68M budget
-    if (captain.stars < player.stars) return false; // Limit: Max 27 stars
+    if (player.ownerId != null) return false;
+    if (captain.playerCount >= 8) return false;
+    if (captain.budget < player.price) return false;
+    if (captain.stars < player.stars) return false;
     return true;
   }
 
-  /// Helper to return validation error message if buying a specific player is forbidden.
   String? _getPurchaseValidationReason(Captain captain, Player player) {
     if (player.ownerId != null) return 'Already Owned';
     if (captain.playerCount >= 8) return 'Squad full (8/8)';
@@ -807,7 +761,7 @@ class MarketView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final captainAsync = ref.watch(currentCaptainProvider);
+    final captainAsync = ref.watch(currentCaptainStreamProvider);
     final playersAsync = ref.watch(playersStreamProvider);
 
     return captainAsync.when(
@@ -816,7 +770,6 @@ class MarketView extends ConsumerWidget {
 
         return playersAsync.when(
           data: (players) {
-            // Only show unbought players in the active market
             final unboughtPlayers = players.where((p) => p.ownerId == null).toList();
 
             if (unboughtPlayers.isEmpty) {
@@ -898,7 +851,6 @@ class MarketView extends ConsumerWidget {
                           ElevatedButton(
                             onPressed: allowed
                                 ? () async {
-                                    // Trigger transaction purchase
                                     final db = ref.read(dbProvider);
                                     final error = await purchasePlayerTransaction(db, captain.uid, player.id);
                                     if (context.mounted) {
@@ -966,7 +918,7 @@ class MyTeamView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final captainAsync = ref.watch(currentCaptainProvider);
+    final captainAsync = ref.watch(currentCaptainStreamProvider);
     final playersAsync = ref.watch(playersStreamProvider);
 
     return captainAsync.when(
@@ -975,12 +927,10 @@ class MyTeamView extends ConsumerWidget {
 
         return playersAsync.when(
           data: (players) {
-            // Filter players belonging to current captain
             final mySquad = players.where((p) => p.ownerId == captain.uid).toList();
 
             return Column(
               children: [
-                // Captain's Team Summary Status Board
                 Container(
                   padding: const EdgeInsets.all(16.0),
                   color: const Color(0xFF1E1A3C),
@@ -1122,7 +1072,6 @@ class StatisticsView extends ConsumerWidget {
           return const Center(child: Text('No active Captain teams registered yet.'));
         }
 
-        // Rank captains by the completeness of their squad, followed by remaining budget
         final rankedCaptains = List<Captain>.from(captains)
           ..sort((a, b) {
             final countComp = b.playerCount.compareTo(a.playerCount);
@@ -1147,11 +1096,10 @@ class StatisticsView extends ConsumerWidget {
                   final captain = rankedCaptains[index];
                   final rank = index + 1;
 
-                  // Decorative award colors for first three places
                   Color rankColor = Colors.white54;
-                  if (rank == 1) rankColor = const Color(0xFFFFD700); // Gold
-                  if (rank == 2) rankColor = const Color(0xFFC0C0C0); // Silver
-                  if (rank == 3) rankColor = const Color(0xFFCD7F32); // Bronze
+                  if (rank == 1) rankColor = const Color(0xFFFFD700);
+                  if (rank == 2) rankColor = const Color(0xFFC0C0C0);
+                  if (rank == 3) rankColor = const Color(0xFFCD7F32);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12.0),
@@ -1159,7 +1107,6 @@ class StatisticsView extends ConsumerWidget {
                       padding: const EdgeInsets.all(12.0),
                       child: Row(
                         children: [
-                          // Rank Circle
                           CircleAvatar(
                             backgroundColor: rankColor,
                             radius: 18,
@@ -1185,7 +1132,6 @@ class StatisticsView extends ConsumerWidget {
                               ],
                             ),
                           ),
-                          // Stats Display Grid
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
