@@ -25,8 +25,12 @@ jobs:
           flutter-version: '3.x'
           channel: 'stable'
 
-      - name: Recreate Android Directory
-        run: flutter create . --platform android --org com.mercatix
+      - name: Recreate Android Directory Safely
+        run: |
+          cp -r lib lib_backup
+          flutter create . --platform android --org com.mercatix
+          rm -rf lib
+          mv lib_backup lib
 
       - name: Get Dependencies
         run: flutter pub get
