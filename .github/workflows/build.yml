@@ -22,15 +22,14 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.x'
+          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Recreate Android Directory Safely
         run: |
-          cp -r lib lib_backup
+          if [ -d "lib" ]; then cp -r lib lib_backup; fi
           flutter create . --platform android --org com.mercatix
-          rm -rf lib
-          mv lib_backup lib
+          if [ -d "lib_backup" ]; then rm -rf lib && mv lib_backup lib; fi
 
       - name: Get Dependencies
         run: flutter pub get
